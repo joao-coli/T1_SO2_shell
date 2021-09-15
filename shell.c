@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
 
 // Definicoes -----------------------------------------------------------
 #define TOKEN_AMNT 16
@@ -62,6 +63,36 @@ char **parse_line(char *line)
 
 int execute_commands(char **args)
 {
+  int status;
+  pid_t result, pid_filho;
+
+  result = fork();
+
+  if (result==-1) {
+      perror("Erro na execucao do comando fork");
+      exit(0);
+  }
+
+  if (result==0) { // este é o processo filho
+
+    // sobrepoe o processo atual com um novo processo
+    execvp(args[0],args);
+    // Se chegou até aqui, é porque o exec falhou :frowning:
+    printf("Erro na execucao do execl\n");
+
+    exit(1);
+
+  } else { // este é o processo pai
+
+    // processo pai vai esperar pelo filho
+    pid_filho=wait(&status);
+
+    if(WIFEXITED(status))
+      printf("%d terminou com status %d\n",(int)pid_filho,WEXITSTATUS(status));
+    else
+      printf("Filho não terminou normalmente\n");
+  }
+
   return 0;
 }
 
@@ -74,12 +105,14 @@ int main()
     printf("sample_shell >> $ ");
 
     line = read_line();
-    tokens = parse_line(line);
 
-    if (strcmp(line, "exit") == 0)
+    if (strcmp(line, "exit\n") == 0)
     {
       break;
     }
+
+    tokens = parse_line(line);
+    execute_commands(tokens);
 
     free(tokens);
   }
