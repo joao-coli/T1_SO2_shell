@@ -4,13 +4,15 @@
 #include <sys/wait.h>
 
 // Definicoes -----------------------------------------------------------
+
 #define TOKEN_AMNT 16
 #define TOKEN_DELIM " \t\r\n"
 #define TOKEN_BACK "&"
 
-int isBackground = 0;
+int is_background = 0;
 
 // Implementacoes -------------------------------------------------------
+
 void **realloc_buffer(void **buff, int new_size)
 {
   buff = realloc(buff, new_size);
@@ -47,8 +49,9 @@ char **parse_line(char *line)
 
   while (token != NULL)
   {
-    if (strcmp(token, "&") == 0) {
-      isBackground = 1;
+    if (strcmp(token, "&") == 0)
+    {
+      is_background = 1;
       break;
     }
 
@@ -75,33 +78,37 @@ int execute_commands(char **args)
 
   result = fork();
 
-  if (result==-1) {
-      perror("Erro na execucao do comando fork");
-      exit(0);
+  if (result == -1)
+  {
+    perror("Erro na execucao do comando fork");
+    exit(0);
   }
 
-  if (result==0) { // este é o processo filho
+  if (result == 0)
+  { // este é o processo filho
 
     // sobrepoe o processo atual com um novo processo
-    execvp(args[0],args);
+    execvp(args[0], args);
     // Se chegou até aqui, é porque o exec falhou :frowning:
     printf("Erro na execucao do execl\n");
 
     exit(1);
-
-  } else { // este é o processo pai
-    // Se o processo for executado em Background terá a global variable isBackground, então o pai não deve esperar
-    if ( isBackground == 0 ) {
+  }
+  else
+  { // este é o processo pai
+    // Se o processo for executado em Background terá a global variable is_background, então o pai não deve esperar
+    if (is_background == 0)
+    {
       // processo pai vai esperar pelo filho
-      pid_filho=wait(&status);
-      if(WIFEXITED(status))
-        printf("%d terminou com status %d\n",(int)pid_filho,WEXITSTATUS(status));
+      pid_filho = wait(&status);
+      if (WIFEXITED(status))
+        printf("%d terminou com status %d\n", (int)pid_filho, WEXITSTATUS(status));
       else
         printf("Filho não terminou normalmente\n");
     }
   }
 
-  isBackground = 0;
+  is_background = 0;
 
   return 0;
 }
