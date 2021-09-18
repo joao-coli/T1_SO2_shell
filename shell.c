@@ -43,12 +43,13 @@ void sighand(int signum)
   pid = waitpid(-1, &status, WNOHANG);
 }
 
-proc initialize_proc_struct()
+proc initialize_proc_struct(int n)
 {
   proc new_proc;
   new_proc.argc = 0;
   new_proc.pid = 0;
   new_proc.filename = NULL;
+  new_proc.args = malloc(n*sizeof(char*));
 
   return new_proc;
 }
@@ -67,8 +68,20 @@ job initialize_job_struct()
  * Desaloca a memória do vetor de processos e destrói o ponteiro da struct
  * Nao ha retorno
  **/
+void destroy_proc_struct(proc *curr_proc)
+{
+  free(curr_proc->args);
+  curr_proc = NULL;
+}
+
+/**
+ * Desaloca a memória do vetor de processos e destrói o ponteiro da struct
+ * Nao ha retorno
+ **/
 void destroy_job_struct(job *curr_job)
 {
+  for (int i = 0; i < curr_job->processes_count; i++)
+    destroy_proc_struct(&(curr_job->processes[i]));
   free(curr_job->processes);
   curr_job = NULL;
 }
@@ -103,7 +116,7 @@ void add_proc_to_job(job *curr_job, proc *curr_proc)
 }
 
 /**
- * Dado um nome de arquivo, redireciona a saída de dados da execução de um comando
+ * Dado um nome de arquivo, redireciona a saída de dados de um processo
  **/
 void redirect_stdout(char *filename)
 {
@@ -111,6 +124,17 @@ void redirect_stdout(char *filename)
   file_stdout = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
   dup2(file_stdout, STDOUT_FILENO);
   close(file_stdout);
+}
+
+/**
+ * Dado um nome de arquivo, redireciona a entrada de dados de um processo
+ **/
+void redirect_stdin(char *filename)
+{
+  int file_stdin;
+  file_stdin = open(filename, O_RDONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+  dup2(file_stdin, STDIN_FILENO);
+  close(file_stdin);
 }
 
 char *read_line()
@@ -165,7 +189,7 @@ char **parse_line(char *line, int *token_count)
  **/
 void parse_tokens(char **tokens, int token_count)
 {
-  int i = 0, argc = 0, proc_c = 0;
+  int i = 0, j = 0, argc = 0, proc_c = 0;
   char *curr_args[token_count + 1];
   memset(curr_args, 0, (token_count + 1) * sizeof(char *));
 
@@ -187,8 +211,8 @@ void parse_tokens(char **tokens, int token_count)
     if (strcmp(tokens[i], "&") == 0 || strcmp(tokens[i], "|") == 0 || strcmp(tokens[i], ">") == 0)
     {
       // Definindo dados do proc atual
-      curr_proc = initialize_proc_struct();
-      curr_proc.args = curr_args;
+      curr_proc = initialize_proc_struct(token_count);
+      memcpy(curr_proc.args, curr_args, (token_count) * sizeof(char*));
       curr_proc.argc = argc;
 
       if (strcmp(tokens[i], ">")==0) 
@@ -216,19 +240,28 @@ void parse_tokens(char **tokens, int token_count)
        
       else
       {
-        
+        // Adicionando o proc a lista do job
+        add_proc_to_job(&curr_job, &curr_proc);
+        *curr_args = NULL;
+        char *curr_args[token_count + 1];
+        memset(curr_args, 0, (token_count + 1) * sizeof(char *));
+        argc = 0;
+        j = 0;
+        i++;
+        continue;
       }
     }
 
-    curr_args[i] = tokens[i];
+    curr_args[j] = tokens[i];
     argc += 1;
-
+    j++;
     i++;
   }
 
   // Definindo dados do proc atual
-  curr_proc = initialize_proc_struct();
-  curr_proc.args = curr_args;
+  curr_proc = initialize_proc_struct(token_count);
+  //curr_proc.args = curr_args;
+  memcpy(curr_proc.args, curr_args, (token_count) * sizeof(char*));
   curr_proc.argc = argc;
 
   // Adicionando o proc a lista do job
@@ -241,10 +274,23 @@ void parse_tokens(char **tokens, int token_count)
 int execute_commands(job *curr_job)
 {
   int status;
+  int pipe0[2], pipe1[2];
   pid_t result, pid_filho;
+  int isPipe = curr_job->processes_count > 1;
 
   for (int i = 0; i < curr_job->processes_count; i++)
   {
+    if ((isPipe) && (i != curr_job->processes_count - 1)){
+      if (i % 2 != 0 || i == 0) 
+      {
+        pipe(pipe0);
+      }
+      else
+      {
+        pipe(pipe1);
+      }
+    }
+
     result = fork();
 
     if (result == -1)
@@ -258,6 +304,38 @@ int execute_commands(job *curr_job)
       if (curr_job->processes[i].filename != NULL)
       {
         redirect_stdout(curr_job->processes[i].filename);
+      }
+      if (isPipe)
+      {
+        if (i == 0)
+        {
+          dup2(pipe0[1],STDOUT_FILENO);
+        }
+        else if (i == curr_job->processes_count - 1)
+        {
+          if (i % 2 != 0) 
+          {
+            dup2(pipe0[0], STDIN_FILENO);
+          }
+          else
+          {
+            dup2(pipe1[0], STDIN_FILENO);
+          }
+        }
+        else 
+        {
+          if (i % 2 != 0) 
+          {
+            dup2(pipe0[0], STDIN_FILENO);
+            dup2(pipe1[1], STDOUT_FILENO);
+          }
+          else
+          {
+            dup2(pipe1[0], STDIN_FILENO);
+            dup2(pipe0[1], STDOUT_FILENO);
+          }
+        }
+
       }
       // sobrepoe o processo atual com um novo processo
       execvp(curr_job->processes[i].args[0], curr_job->processes[i].args);
@@ -278,6 +356,38 @@ int execute_commands(job *curr_job)
         else
           printf("Filho não terminou normalmente\n");
       }
+    
+    if (isPipe){
+      if (i == 0)
+      {
+        close(pipe0[1]);
+      }
+      else if (i == curr_job->processes_count - 1)
+      {
+        if (i % 2 != 0) 
+        {
+          close(pipe0[0]);
+        }
+        else
+        {
+          close(pipe1[0]);
+        }
+      }
+      else 
+      {
+        if (i % 2 != 0) 
+        {
+          close(pipe0[0]);
+          close(pipe1[1]);
+        }
+        else
+        {
+          close(pipe1[0]);
+          close(pipe0[1]);
+        }
+      }
+    }
+    
     }
   }
 
