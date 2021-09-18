@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 
 // Definicoes -----------------------------------------------------------
 
@@ -17,6 +20,7 @@ typedef struct
   int argc;
   char **args;
   pid_t pid;
+  char *filename;
 } proc;
 
 typedef struct
@@ -44,6 +48,7 @@ proc initialize_proc_struct()
   proc new_proc;
   new_proc.argc = 0;
   new_proc.pid = 0;
+  new_proc.filename = NULL;
 
   return new_proc;
 }
@@ -95,6 +100,17 @@ void add_proc_to_job(job *curr_job, proc *curr_proc)
 
   curr_job->processes[curr_job->processes_count] = *curr_proc;
   curr_job->processes_count += 1;
+}
+
+/**
+ * Dado um nome de arquivo, redireciona a saída de dados da execução de um comando
+ **/
+void redirect_stdout(char *filename)
+{
+  int file_stdout;
+  file_stdout = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+  dup2(file_stdout, STDOUT_FILENO);
+  close(file_stdout);
 }
 
 char *read_line()
@@ -175,14 +191,32 @@ void parse_tokens(char **tokens, int token_count)
       curr_proc.args = curr_args;
       curr_proc.argc = argc;
 
-      // Adicionando o proc a lista do job
-      add_proc_to_job(&curr_job, &curr_proc);
+      if (strcmp(tokens[i], ">")==0) 
+      {
+        curr_proc.filename = tokens[i+1];
+        // Adicionando o proc a lista do job
+        add_proc_to_job(&curr_job, &curr_proc);
+        
+        if (strcmp(tokens[token_count-1], "&") == 0 )
+        {
+          is_background = 1;
+        }
+        execute_commands(&curr_job);
+        return;
+      }
 
       if (strcmp(tokens[i], "&") == 0)
       {
+        // Adicionando o proc a lista do job
+        add_proc_to_job(&curr_job, &curr_proc);
         is_background = 1;
         execute_commands(&curr_job);
         return;
+      }
+       
+      else
+      {
+        
       }
     }
 
@@ -221,7 +255,10 @@ int execute_commands(job *curr_job)
 
     if (result == 0)
     { // este é o processo filho
-
+      if (curr_job->processes[i].filename != NULL)
+      {
+        redirect_stdout(curr_job->processes[i].filename);
+      }
       // sobrepoe o processo atual com um novo processo
       execvp(curr_job->processes[i].args[0], curr_job->processes[i].args);
       // Se chegou até aqui, é porque o exec falhou
