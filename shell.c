@@ -241,6 +241,7 @@ void parse_tokens(char **tokens, int token_count)
       else
       {
         // Adicionando o proc a lista do job
+        curr_args[j] = NULL;
         add_proc_to_job(&curr_job, &curr_proc);
         *curr_args = NULL;
         char *curr_args[token_count + 1];
@@ -258,6 +259,7 @@ void parse_tokens(char **tokens, int token_count)
     i++;
   }
 
+  curr_args[j] = NULL;
   // Definindo dados do proc atual
   curr_proc = initialize_proc_struct(token_count);
   //curr_proc.args = curr_args;
@@ -406,7 +408,7 @@ int main()
 
   while (1)
   {
-    printf("sample_shell >> $ ");
+    printf("$ ");
 
     line = read_line();
     tokens = parse_line(line, &line_arg_count);
