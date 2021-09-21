@@ -5,6 +5,11 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+/**
+ * Grupo:
+ *  Joao Gabriel Coli - 744339
+ *  Ricardo Srzam Filho - 744353
+ **/
 
 // Definicoes -----------------------------------------------------------
 
@@ -17,23 +22,23 @@ int is_background = 0;
 // Struct para processos
 typedef struct
 {
-  int argc;
-  char **args;
-  pid_t pid;
+  int argc; // quantidade de argumentos
+  char **args; // argumentos (vetor de char*)
   char *filename;
 } proc;
 
+// Struct para gerenciamento de múltiplos procs
 typedef struct
 {
   proc *processes;
   int processes_count;
-  int max_processes;
+  int max_processes; // quantidade maxima de processos permitida no array
 } job;
 
 // Implementacoes -------------------------------------------------------
 
 /**
- * Mistério
+ * Evita que sejam criados procesos defunct/zombie
  **/
 void sighand(int signum)
 {
@@ -43,6 +48,11 @@ void sighand(int signum)
   pid = waitpid(-1, &status, WNOHANG);
 }
 
+/**
+ * Dada uma quantidade n de posicoes para o vetor de argumentos, inicializa um proc
+ *  com valores padrao
+ * Retorna o proc inicializado
+ **/
 proc initialize_proc_struct(int n)
 {
   proc new_proc;
@@ -54,6 +64,10 @@ proc initialize_proc_struct(int n)
   return new_proc;
 }
 
+/**
+ * Inicializa um proc um job com valores padrao
+ * Retorna o job inicializado
+ **/
 job initialize_job_struct()
 {
   job new_job;
@@ -86,6 +100,10 @@ void destroy_job_struct(job *curr_job)
   curr_job = NULL;
 }
 
+/**
+ * Dado um vetor de ponteiros (ou vetor de vetores), o realoca para um novo tamanho new_size
+ * Retorna o vetor realocado
+ **/
 void **realloc_buffer(void **buff, int new_size)
 {
   buff = realloc(buff, new_size);
@@ -111,6 +129,7 @@ void add_proc_to_job(job *curr_job, proc *curr_proc)
     curr_job->processes = realloc_buffer(curr_job->processes, curr_job->max_processes * sizeof(proc *));
   }
 
+  // Proc e copiado para a lista 
   curr_job->processes[curr_job->processes_count] = *curr_proc;
   curr_job->processes_count += 1;
 }
@@ -122,21 +141,14 @@ void redirect_stdout(char *filename)
 {
   int file_stdout;
   file_stdout = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
-  dup2(file_stdout, STDOUT_FILENO);
+  dup2(file_stdout, STDOUT_FILENO); // redicion a saida para o local indicado
   close(file_stdout);
 }
 
 /**
- * Dado um nome de arquivo, redireciona a entrada de dados de um processo
+ * Espera pela entrada do usuario para que seja lida uma linha
+ * Retorna a linha (string) lida
  **/
-void redirect_stdin(char *filename)
-{
-  int file_stdin;
-  file_stdin = open(filename, O_RDONLY | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
-  dup2(file_stdin, STDIN_FILENO);
-  close(file_stdin);
-}
-
 char *read_line()
 {
   char *line = NULL;
@@ -144,7 +156,7 @@ char *read_line()
 
   if (getline(&line, &line_len, stdin) == -1)
   {
-    exit(EXIT_SUCCESS); // EOF
+    exit(EXIT_SUCCESS); // EOF - end of file
   }
 
   return line;
@@ -163,18 +175,20 @@ char **parse_line(char *line, int *token_count)
   // TODO: checar possiveis erros de alocacao no malloc
   token = strtok(line, TOKEN_DELIM);
 
+  // Enquanto houver tokens nao nulos
   while (token != NULL)
   {
     tokens[i] = token;
     i++;
 
+    // Quantidade de tokens maior que o previsto; valor realocado
     if (i >= curr_size)
     {
-      curr_size += TOKEN_AMNT; // Dobrar o valor seria desnecessario
+      curr_size += TOKEN_AMNT; // dobrar o valor seria desnecessario
       tokens = realloc_buffer(tokens, curr_size * sizeof(char *));
     }
 
-    token = strtok(NULL, TOKEN_DELIM);
+    token = strtok(NULL, TOKEN_DELIM); // continua a iteracao
   }
 
   tokens[i] = NULL; // Explicitando o fim da lista
@@ -190,7 +204,7 @@ char **parse_line(char *line, int *token_count)
 void parse_tokens(char **tokens, int token_count)
 {
   int i = 0, j = 0, argc = 0, proc_c = 0;
-  char *curr_args[token_count + 1];
+  char *curr_args[token_count + 1]; // vetor de char*
   memset(curr_args, 0, (token_count + 1) * sizeof(char *));
 
   // Sem comandos, nao ha o que ser manipulado
@@ -208,6 +222,7 @@ void parse_tokens(char **tokens, int token_count)
   proc curr_proc;
   while (tokens[i] != NULL)
   {
+    // Casos especiais tratados: pipe, redirecionamento de saida e background
     if (strcmp(tokens[i], "&") == 0 || strcmp(tokens[i], "|") == 0 || strcmp(tokens[i], ">") == 0)
     {
       // Definindo dados do proc atual
@@ -225,7 +240,7 @@ void parse_tokens(char **tokens, int token_count)
         {
           is_background = 1;
         }
-        execute_commands(&curr_job);
+        execute_commands(&curr_job); // finaliza o parsing e executa o job ate aqui
         return;
       }
 
@@ -234,16 +249,15 @@ void parse_tokens(char **tokens, int token_count)
         // Adicionando o proc a lista do job
         add_proc_to_job(&curr_job, &curr_proc);
         is_background = 1;
-        execute_commands(&curr_job);
+        execute_commands(&curr_job); // executa o que foi lido ate aqui
         return;
       }
        
       else
       {
-        // Adicionando o proc a lista do job
-        curr_args[j] = NULL;
+        // Adicionando o proc a lista do job -> apos o pipe virao novos comandos
         add_proc_to_job(&curr_job, &curr_proc);
-        *curr_args = NULL;
+        *curr_args = NULL; // reinicializando a vetor de tokens
         char *curr_args[token_count + 1];
         memset(curr_args, 0, (token_count + 1) * sizeof(char *));
         argc = 0;
@@ -259,7 +273,6 @@ void parse_tokens(char **tokens, int token_count)
     i++;
   }
 
-  curr_args[j] = NULL;
   // Definindo dados do proc atual
   curr_proc = initialize_proc_struct(token_count);
   //curr_proc.args = curr_args;
@@ -273,16 +286,22 @@ void parse_tokens(char **tokens, int token_count)
   destroy_job_struct(&curr_job);
 }
 
+/**
+ * Dado um job, executa em sequencia seus procs, respeitando condicoes de redirecionamento, pipe
+ *  e execucao em background
+ * Nao ha retorno significativo
+ **/
 int execute_commands(job *curr_job)
 {
   int status;
-  int pipe0[2], pipe1[2];
+  int pipe0[2], pipe1[2]; // dois pipes para execucao sequencial
   pid_t result, pid_filho;
   int isPipe = curr_job->processes_count > 1;
 
+  // Atualmente, se ha mais de um proc no job, e tratamento de pipe
   for (int i = 0; i < curr_job->processes_count; i++)
   {
-    if ((isPipe) && (i != curr_job->processes_count - 1)){
+    if ((isPipe) && (i != curr_job->processes_count - 1)){ // caso especial: o ultimo proc nao abre pipes
       if (i % 2 != 0 || i == 0) 
       {
         pipe(pipe0);
@@ -302,18 +321,18 @@ int execute_commands(job *curr_job)
     }
 
     if (result == 0)
-    { // este é o processo filho
+    { // este e o processo filho
       if (curr_job->processes[i].filename != NULL)
       {
         redirect_stdout(curr_job->processes[i].filename);
       }
       if (isPipe)
       {
-        if (i == 0)
+        if (i == 0) // o primeiro proc apenas cria o de escrita
         {
           dup2(pipe0[1],STDOUT_FILENO);
         }
-        else if (i == curr_job->processes_count - 1)
+        else if (i == curr_job->processes_count - 1) // o ultimo apenas le o ultimo pipe disponivel
         {
           if (i % 2 != 0) 
           {
@@ -324,7 +343,7 @@ int execute_commands(job *curr_job)
             dup2(pipe1[0], STDIN_FILENO);
           }
         }
-        else 
+        else // do contrario ha leitura e escrita
         {
           if (i % 2 != 0) 
           {
@@ -360,11 +379,11 @@ int execute_commands(job *curr_job)
       }
     
     if (isPipe){
-      if (i == 0)
+      if (i == 0) // o primeiro fecha a propria escrita
       {
         close(pipe0[1]);
       }
-      else if (i == curr_job->processes_count - 1)
+      else if (i == curr_job->processes_count - 1) // o ultimo fecha a leitura
       {
         if (i % 2 != 0) 
         {
@@ -375,7 +394,7 @@ int execute_commands(job *curr_job)
           close(pipe1[0]);
         }
       }
-      else 
+      else // intermediarios fecham as leituras e abrem a escrita
       {
         if (i % 2 != 0) 
         {
@@ -393,7 +412,7 @@ int execute_commands(job *curr_job)
     }
   }
 
-  is_background = 0;
+  is_background = 0; // flag de background e zerada
 
   return 0;
 }
@@ -408,12 +427,11 @@ int main()
 
   while (1)
   {
-    printf("$ ");
+    printf("sample_shell >> $ ");
 
-    line = read_line();
-    tokens = parse_line(line, &line_arg_count);
-    parse_tokens(tokens, line_arg_count);
-    //execute_commands(tokens);
+    line = read_line(); // lemos a linha
+    tokens = parse_line(line, &line_arg_count); // sao gerados tokens
+    parse_tokens(tokens, line_arg_count); // tokens sao interpretados e executados
 
     free(tokens);
   }
